@@ -1,0 +1,13 @@
+<resources>
+    <string name="app_name">Tracky</string>
+    <string name="google_maps_key">AIzaSyAazgTS0YJqb5_arSbr-YJbOb7q_t1PFyY</string>
+    <string name="runner">Runner</string>
+
+    <string-array name="filter_options">
+        <item>Date</item>
+        <item>Running Time</item>
+        <item>Distance</item>
+        <item>Average Speed</item>
+        <item>Calories Burned</item>
+    </string-array>
+</resources>
