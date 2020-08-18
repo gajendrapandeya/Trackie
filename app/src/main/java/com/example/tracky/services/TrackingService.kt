@@ -27,6 +27,7 @@ import com.example.tracky.other.Constants.LOCATION_UPDATE_INTERVAL
 import com.example.tracky.other.Constants.NOTIFICATION_CHANNEL_ID
 import com.example.tracky.other.Constants.NOTIFICATION_CHANNEL_NAME
 import com.example.tracky.other.Constants.NOTIFICATION_ID
+import com.example.tracky.other.Constants.TIMER_UPDATE_INTERVAL
 import com.example.tracky.other.TrackingUtility
 import com.example.tracky.ui.MainActivity
 import com.google.android.gms.location.FusedLocationProviderClient
@@ -35,6 +36,10 @@ import com.google.android.gms.location.LocationRequest
 import com.google.android.gms.location.LocationRequest.PRIORITY_HIGH_ACCURACY
 import com.google.android.gms.location.LocationResult
 import com.google.android.gms.maps.model.LatLng
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import timber.log.Timber
 
 typealias Polyline = MutableList<LatLng>
@@ -50,6 +55,10 @@ class TrackingService : LifecycleService() {
 
     private lateinit var fuesdLocationProviderClient: FusedLocationProviderClient
 
+    //time for notifications
+    private val timeRunInSeconds = MutableLiveData<Long>()
+
+
     companion object {
         //If we are tracking user or not
         val isTracking = MutableLiveData<Boolean>()
@@ -58,6 +67,9 @@ class TrackingService : LifecycleService() {
         //suppose user was first running then he stopped the service (this will generate first line)
         //and if he again start the service(new line will be generated)
         val pathPoints = MutableLiveData<Polylines>()
+
+        //time for tracking fragment
+        val timeRunInMillis = MutableLiveData<Long>()
     }
 
     override fun onCreate() {
@@ -82,7 +94,7 @@ class TrackingService : LifecycleService() {
                         isFirstRun = false
                     } else {
                         Timber.d("Resuming Service")
-                        startForegroundService()
+                        startTimer()
                     }
                 }
 
@@ -114,7 +126,7 @@ class TrackingService : LifecycleService() {
     //function to start a foreground service
     private fun startForegroundService() {
 
-        addEmptyPolyline()
+        startTimer()
         isTracking.postValue(true)
 
         val notificationManager =
@@ -156,6 +168,9 @@ class TrackingService : LifecycleService() {
         isTracking.postValue(false)
         //empty list
         pathPoints.postValue(mutableListOf())
+
+        timeRunInSeconds.postValue(0L)
+        timeRunInMillis.postValue(0L)
     }
 
     //function that adds an empty polyline at the end of our polyLines list
@@ -217,7 +232,53 @@ class TrackingService : LifecycleService() {
     }
 
     //function to pause the service
-    private fun  pauseService() {
+    private fun pauseService() {
         isTracking.postValue(false)
+        isTimerEnabled = false
+    }
+
+    private var isTimerEnabled = false
+
+    //time from the beginning where the timer started or we resumed the timer
+    private var lapTime = 0L
+
+    //total time of our run
+    private var timeRun = 0L
+
+    //time when we started the timer
+    private var timeStarted = 0L
+
+    private var lastSecondTimeStamp = 0L
+
+    //this will be called always when we start or resume our service
+    private fun startTimer() {
+
+        addEmptyPolyline()
+        isTracking.postValue(true)
+        timeStarted = System.currentTimeMillis()
+        isTimerEnabled = true
+
+        CoroutineScope(Dispatchers.Main).launch {
+
+            //as long as we are tracking
+            while (isTracking.value!!) {
+
+                //time difference between now and timeStarted
+                lapTime = System.currentTimeMillis() - timeStarted
+
+                //post the new lap time
+                timeRunInMillis.postValue(timeRun + lapTime)
+
+                //last whole second values passed in millisecond => lastSecondTimeStamp + 1000
+                if (timeRunInMillis.value!! >= lastSecondTimeStamp + 1000) {
+
+                    timeRunInSeconds.postValue(timeRunInSeconds.value!! + 1)
+                    lastSecondTimeStamp += 1000L
+                }
+                delay(TIMER_UPDATE_INTERVAL)
+            }
+
+            timeRun += lapTime
+        }
     }
 }
