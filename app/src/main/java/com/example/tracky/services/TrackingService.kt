@@ -1,50 +1,88 @@
 package com.example.tracky.services
 
+import android.annotation.SuppressLint
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.NotificationManager.IMPORTANCE_LOW
 import android.app.PendingIntent
 import android.app.PendingIntent.FLAG_UPDATE_CURRENT
+import android.content.ContentProviderClient
 import android.content.Context
 import android.content.Intent
+import android.location.Location
 import android.os.Build
+import android.os.Looper
 import androidx.annotation.RequiresApi
 import androidx.core.app.NotificationCompat
 import androidx.lifecycle.LifecycleService
+import androidx.lifecycle.MutableLiveData
+import androidx.lifecycle.Observer
 import com.example.tracky.R
-import com.example.tracky.other.Constants
 import com.example.tracky.other.Constants.ACTION_PAUSE_SERVICE
 import com.example.tracky.other.Constants.ACTION_SHOW_TRACKING_FRAGMENT
 import com.example.tracky.other.Constants.ACTION_START_OR_RESUME_SERVICE
 import com.example.tracky.other.Constants.ACTION_STOP_SERVICE
+import com.example.tracky.other.Constants.FASTEST_LOCATION_INTERVAL
+import com.example.tracky.other.Constants.LOCATION_UPDATE_INTERVAL
 import com.example.tracky.other.Constants.NOTIFICATION_CHANNEL_ID
 import com.example.tracky.other.Constants.NOTIFICATION_CHANNEL_NAME
 import com.example.tracky.other.Constants.NOTIFICATION_ID
+import com.example.tracky.other.TrackingUtility
 import com.example.tracky.ui.MainActivity
+import com.google.android.gms.location.FusedLocationProviderClient
+import com.google.android.gms.location.LocationCallback
+import com.google.android.gms.location.LocationRequest
+import com.google.android.gms.location.LocationRequest.PRIORITY_HIGH_ACCURACY
+import com.google.android.gms.location.LocationResult
+import com.google.android.gms.maps.model.LatLng
 import timber.log.Timber
+
+typealias Polyline = MutableList<LatLng>
+typealias Polylines = MutableList<Polyline>
 
 //Usually when we create a service, then that service class inherits either from Service or IntentService class
 //But we are inheriting from LifeCycleService() because we need to observe from liveData object inside this class
 //Observe() of LiveData object needs the lifeCycleOwner and if we don't specify LifecycleService() here
 //then we cannot pass an instance of this service as a lifeCycleOwner to that observe function
-class TrackingService: LifecycleService() {
+class TrackingService : LifecycleService() {
 
     private var isFirstRun = true
+
+    private lateinit var fuesdLocationProviderClient: FusedLocationProviderClient
+
+    companion object {
+        //If we are tracking user or not
+        val isTracking = MutableLiveData<Boolean>()
+
+        // this live data will hold list of list of co-ordinates that's because
+        //suppose user was first running then he stopped the service (this will generate first line)
+        //and if he again start the service(new line will be generated)
+        val pathPoints = MutableLiveData<Polylines>()
+    }
+
+    override fun onCreate() {
+        super.onCreate()
+        postInitialValues()
+        fuesdLocationProviderClient = FusedLocationProviderClient(this)
+        isTracking.observe(this, Observer {
+            updateLocationTracking(it)
+        })
+    }
 
     //this function get called whenEver we send a command to our service
     //i.e. when we send an intent with an action attached to this service
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
 
         intent?.let {
-            when(it.action) {
+            when (it.action) {
 
                 ACTION_START_OR_RESUME_SERVICE -> {
-                   if(isFirstRun) {
-                       startForegroundService()
-                       isFirstRun = false
-                   } else {
-                       Timber.d("Resuming Service")
-                   }
+                    if (isFirstRun) {
+                        startForegroundService()
+                        isFirstRun = false
+                    } else {
+                        Timber.d("Resuming Service")
+                    }
                 }
 
                 ACTION_PAUSE_SERVICE -> {
@@ -63,25 +101,31 @@ class TrackingService: LifecycleService() {
     @RequiresApi(Build.VERSION_CODES.O)
     private fun createNotificationChannel(notificationManager: NotificationManager) {
 
-        val channel = NotificationChannel(NOTIFICATION_CHANNEL_ID,
-        NOTIFICATION_CHANNEL_NAME,
-        IMPORTANCE_LOW)
+        val channel = NotificationChannel(
+            NOTIFICATION_CHANNEL_ID,
+            NOTIFICATION_CHANNEL_NAME,
+            IMPORTANCE_LOW
+        )
         notificationManager.createNotificationChannel(channel)
     }
 
     //function to start a foreground service
     private fun startForegroundService() {
 
-        val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        addEmptyPolyline()
+        isTracking.postValue(true)
 
-        if(Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+        val notificationManager =
+            getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             createNotificationChannel(notificationManager)
         }
 
         val notificationBuilder = NotificationCompat.Builder(this, NOTIFICATION_CHANNEL_ID)
-                //if the user clicks on the notifications, then notification won't be disappeared
+            //if the user clicks on the notifications, then notification won't be disappeared
             .setAutoCancel(false)
-                //notification can't be swiped away
+            //notification can't be swiped away
             .setOngoing(true)
             .setSmallIcon(R.drawable.ic_directions_run_black_24dp)
             .setContentTitle("Trackie")
@@ -104,6 +148,71 @@ class TrackingService: LifecycleService() {
         },
         FLAG_UPDATE_CURRENT
     )
+
+    //function that post initial values to LiveData
+    private fun postInitialValues() {
+        isTracking.postValue(false)
+        //empty list
+        pathPoints.postValue(mutableListOf())
+    }
+
+    //function that adds an empty polyline at the end of our polyLines list
+    private fun addEmptyPolyline() = pathPoints.value?.apply {
+        add(mutableListOf())
+        pathPoints.postValue(this)
+    } ?: pathPoints.postValue(mutableListOf(mutableListOf()))
+
+    //function that adds coordinates to the last polyline of our polyLines list
+    private fun addPathPoints(location: Location?) {
+
+        //if location is not null
+        location?.let {
+
+            //converting latLng to location
+            val pos = LatLng(location.latitude, location.longitude)
+
+            pathPoints.value?.apply {
+                last().add(pos)
+                pathPoints.postValue(this)
+            }
+        }
+    }
+
+    val locationCallback = object : LocationCallback() {
+        override fun onLocationResult(result: LocationResult?) {
+            super.onLocationResult(result)
+
+            if (isTracking.value!!) {
+                result?.locations?.let { locations ->
+                    for (location in locations) {
+                        addPathPoints(location)
+                        Timber.d("new location: ${location.latitude},${location.longitude}")
+                    }
+                }
+            }
+        }
+    }
+
+    //function that update our location tracking
+    @SuppressLint("MissingPermission")
+    private fun updateLocationTracking(isTracking: Boolean) {
+        if (isTracking) {
+            if (TrackingUtility.hasLocationsPermissions(this)) {
+                val request = LocationRequest().apply {
+                    interval = LOCATION_UPDATE_INTERVAL
+                    fastestInterval = FASTEST_LOCATION_INTERVAL
+                    priority = PRIORITY_HIGH_ACCURACY
+                }
+                fuesdLocationProviderClient.requestLocationUpdates(
+                    request,
+                    locationCallback,
+                    Looper.getMainLooper()
+                )
+            }
+        } else {
+            fuesdLocationProviderClient.removeLocationUpdates(locationCallback)
+        }
+    }
 
 
 }
