@@ -82,11 +82,13 @@ class TrackingService : LifecycleService() {
                         isFirstRun = false
                     } else {
                         Timber.d("Resuming Service")
+                        startForegroundService()
                     }
                 }
 
                 ACTION_PAUSE_SERVICE -> {
                     Timber.d("Paused Service")
+                    pauseService()
                 }
 
                 ACTION_STOP_SERVICE -> {
@@ -214,5 +216,8 @@ class TrackingService : LifecycleService() {
         }
     }
 
-
+    //function to pause the service
+    private fun  pauseService() {
+        isTracking.postValue(false)
+    }
 }
