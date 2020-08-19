@@ -27,7 +27,7 @@ object TrackingUtility {
             )
         }
 
-    fun getFormattedStopWatchTime(ms: Long, includeMillis: Boolean): String {
+    fun getFormattedStopWatchTime(ms: Long, includeMillis: Boolean = false): String {
         var millisecond = ms
 
         val hours = TimeUnit.MILLISECONDS.toHours(millisecond)

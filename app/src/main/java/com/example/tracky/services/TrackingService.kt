@@ -5,8 +5,7 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.NotificationManager.IMPORTANCE_LOW
 import android.app.PendingIntent
-import android.app.PendingIntent.FLAG_UPDATE_CURRENT
-import android.content.ContentProviderClient
+import android.app.PendingIntent.*
 import android.content.Context
 import android.content.Intent
 import android.location.Location
@@ -19,7 +18,6 @@ import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.Observer
 import com.example.tracky.R
 import com.example.tracky.other.Constants.ACTION_PAUSE_SERVICE
-import com.example.tracky.other.Constants.ACTION_SHOW_TRACKING_FRAGMENT
 import com.example.tracky.other.Constants.ACTION_START_OR_RESUME_SERVICE
 import com.example.tracky.other.Constants.ACTION_STOP_SERVICE
 import com.example.tracky.other.Constants.FASTEST_LOCATION_INTERVAL
@@ -29,18 +27,19 @@ import com.example.tracky.other.Constants.NOTIFICATION_CHANNEL_NAME
 import com.example.tracky.other.Constants.NOTIFICATION_ID
 import com.example.tracky.other.Constants.TIMER_UPDATE_INTERVAL
 import com.example.tracky.other.TrackingUtility
-import com.example.tracky.ui.MainActivity
 import com.google.android.gms.location.FusedLocationProviderClient
 import com.google.android.gms.location.LocationCallback
 import com.google.android.gms.location.LocationRequest
 import com.google.android.gms.location.LocationRequest.PRIORITY_HIGH_ACCURACY
 import com.google.android.gms.location.LocationResult
 import com.google.android.gms.maps.model.LatLng
+import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import timber.log.Timber
+import javax.inject.Inject
 
 typealias Polyline = MutableList<LatLng>
 typealias Polylines = MutableList<Polyline>
@@ -49,11 +48,18 @@ typealias Polylines = MutableList<Polyline>
 //But we are inheriting from LifeCycleService() because we need to observe from liveData object inside this class
 //Observe() of LiveData object needs the lifeCycleOwner and if we don't specify LifecycleService() here
 //then we cannot pass an instance of this service as a lifeCycleOwner to that observe function
+@AndroidEntryPoint
 class TrackingService : LifecycleService() {
 
     private var isFirstRun = true
 
-    private lateinit var fuesdLocationProviderClient: FusedLocationProviderClient
+    @Inject
+    private lateinit var fusedLocationProviderClient: FusedLocationProviderClient
+
+    @Inject
+    lateinit var baseNotificationBuilder: NotificationCompat.Builder
+
+    lateinit var curNotificationBuilder: NotificationCompat.Builder
 
     //time for notifications
     private val timeRunInSeconds = MutableLiveData<Long>()
@@ -74,10 +80,13 @@ class TrackingService : LifecycleService() {
 
     override fun onCreate() {
         super.onCreate()
+        curNotificationBuilder = baseNotificationBuilder
         postInitialValues()
-        fuesdLocationProviderClient = FusedLocationProviderClient(this)
+        fusedLocationProviderClient = FusedLocationProviderClient(this)
         isTracking.observe(this, Observer {
             updateLocationTracking(it)
+            updateNotificationTrackingState(it)
+
         })
     }
 
@@ -136,32 +145,22 @@ class TrackingService : LifecycleService() {
             createNotificationChannel(notificationManager)
         }
 
-        val notificationBuilder = NotificationCompat.Builder(this, NOTIFICATION_CHANNEL_ID)
-            //if the user clicks on the notifications, then notification won't be disappeared
-            .setAutoCancel(false)
-            //notification can't be swiped away
-            .setOngoing(true)
-            .setSmallIcon(R.drawable.ic_directions_run_black_24dp)
-            .setContentTitle("Trackie")
-            .setContentText("00:00:00")
-            .setContentIntent(getMainActivityPendingIntent())
-
         //foreground service will be started
-        startForeground(NOTIFICATION_ID, notificationBuilder.build())
+        startForeground(NOTIFICATION_ID, baseNotificationBuilder.build())
 
         //A pending intent is to open our mainActivity when user clicks on notifications
         //We want to navigate user directly to TrackingFragment but by default it opens to MainActivity
         //for us that will be our RunFragment
-    }
 
-    private fun getMainActivityPendingIntent() = PendingIntent.getActivity(
-        this,
-        0,
-        Intent(this, MainActivity::class.java).also {
-            it.action = ACTION_SHOW_TRACKING_FRAGMENT
-        },
-        FLAG_UPDATE_CURRENT
-    )
+        //observing in timeInSeconds for notifications
+        timeRunInSeconds.observe(this, Observer {
+            val notification = curNotificationBuilder
+                .setContentText(TrackingUtility.getFormattedStopWatchTime(it * 1000L))
+
+            notificationManager.notify(NOTIFICATION_ID, notification.build())
+
+        })
+    }
 
     //function that post initial values to LiveData
     private fun postInitialValues() {
@@ -220,14 +219,14 @@ class TrackingService : LifecycleService() {
                     fastestInterval = FASTEST_LOCATION_INTERVAL
                     priority = PRIORITY_HIGH_ACCURACY
                 }
-                fuesdLocationProviderClient.requestLocationUpdates(
+                fusedLocationProviderClient.requestLocationUpdates(
                     request,
                     locationCallback,
                     Looper.getMainLooper()
                 )
             }
         } else {
-            fuesdLocationProviderClient.removeLocationUpdates(locationCallback)
+            fusedLocationProviderClient.removeLocationUpdates(locationCallback)
         }
     }
 
@@ -280,5 +279,34 @@ class TrackingService : LifecycleService() {
 
             timeRun += lapTime
         }
+    }
+
+    private fun updateNotificationTrackingState(isTracking: Boolean) {
+        val notificationActionText = if(isTracking) "Pause" else "Resume"
+
+        val pendingIntent = if(isTracking) {
+            val pauseIntent = Intent(this, TrackingService::class.java).apply {
+                action = ACTION_PAUSE_SERVICE
+            }
+            PendingIntent.getService(this, 1, pauseIntent, FLAG_UPDATE_CURRENT)
+        } else {
+            val resumeIntent = Intent(this, TrackingService::class.java).apply {
+                action = ACTION_START_OR_RESUME_SERVICE
+            }
+            getService(this, 2, resumeIntent, FLAG_UPDATE_CURRENT)
+        }
+
+        val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+
+        curNotificationBuilder.javaClass.getDeclaredField("mActions").apply {
+            isAccessible = true
+            set(curNotificationBuilder, ArrayList<NotificationCompat.Action>())
+        }
+
+        curNotificationBuilder = baseNotificationBuilder
+            .addAction(R.drawable.ic_pause_black_24dp, notificationActionText, pendingIntent)
+
+        notificationManager.notify(NOTIFICATION_ID, curNotificationBuilder.build())
+
     }
 }
