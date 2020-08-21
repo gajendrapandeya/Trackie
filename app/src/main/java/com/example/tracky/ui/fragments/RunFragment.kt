@@ -17,51 +17,49 @@ import pub.devrel.easypermissions.AppSettingsDialog
 import pub.devrel.easypermissions.EasyPermissions
 
 @AndroidEntryPoint
-class RunFragment : Fragment(R.layout.fragment_run), EasyPermissions.PermissionCallbacks{
+class RunFragment : Fragment(R.layout.fragment_run), EasyPermissions.PermissionCallbacks {
 
     private val viewModel: MainViewModel by viewModels()
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
-
         requestPermissions()
+
         fab.setOnClickListener {
             findNavController().navigate(R.id.action_runFragment_to_trackingFragment)
         }
     }
 
     private fun requestPermissions() {
-        //if user has already given those permissions
-        if (TrackingUtility.hasLocationsPermissions(requireContext())) {
+        //if user has already given the permissions
+        if(TrackingUtility.hasLocationPermissions(requireContext())) {
             return
         }
-
-        //device less than Android Q
+        //if user has not given the permissions, So checking device version and requesting permissions again
         if(Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
             EasyPermissions.requestPermissions(
                 this,
-                "You need to accept location permissions to use this app",
+                "You need to accept location permissions to use this app.",
                 REQUEST_CODE_LOCATION_PERMISSION,
-                Manifest.permission.ACCESS_FINE_LOCATION,
-                Manifest.permission.ACCESS_COARSE_LOCATION
+                Manifest.permission.ACCESS_COARSE_LOCATION,
+                Manifest.permission.ACCESS_FINE_LOCATION
             )
         } else {
-
             EasyPermissions.requestPermissions(
                 this,
-                "You need to accept location permissions to use this app",
+                "You need to accept location permissions to use this app.",
                 REQUEST_CODE_LOCATION_PERMISSION,
-                Manifest.permission.ACCESS_FINE_LOCATION,
                 Manifest.permission.ACCESS_COARSE_LOCATION,
+                Manifest.permission.ACCESS_FINE_LOCATION,
                 Manifest.permission.ACCESS_BACKGROUND_LOCATION
             )
         }
     }
 
     override fun onPermissionsDenied(requestCode: Int, perms: MutableList<String>) {
-
-        //if some permissions are permanently denied
+        //if permissions are permanently denied
         if(EasyPermissions.somePermissionPermanentlyDenied(this, perms)) {
+            //dialog that lead user to app setting
             AppSettingsDialog.Builder(this).build().show()
         } else {
             requestPermissions()
@@ -70,13 +68,16 @@ class RunFragment : Fragment(R.layout.fragment_run), EasyPermissions.PermissionC
 
     override fun onPermissionsGranted(requestCode: Int, perms: MutableList<String>) {}
 
-    //function that handles user permission result
+
+    //function that handles permission result by default in android
     override fun onRequestPermissionsResult(
         requestCode: Int,
         permissions: Array<out String>,
         grantResults: IntArray
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        EasyPermissions.onRequestPermissionsResult(REQUEST_CODE_LOCATION_PERMISSION, permissions, grantResults, this)
+        EasyPermissions.onRequestPermissionsResult(requestCode, permissions, grantResults, this)
     }
 }
+
+

@@ -19,7 +19,7 @@ data class Run(
         //how far we ran
         var distanceInMeters: Int = 0,
 
-        //how long was our run
+        //how long was our run was
         var timeInMillis: Long = 0L,
 
         //calories burnt

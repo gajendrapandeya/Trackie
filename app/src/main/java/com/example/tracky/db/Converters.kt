@@ -14,7 +14,7 @@ class Converters {
     //since both of our function for room, so we need to annotate them with TypeConverter
 
     //converting bitmap into the form room understand i.e ByteArray
-    //this function will take a bitmap and convert that it into raw_bites that is stored in room
+    //this function will take a bitmap and convert that it into raw_bites that is stored in room as byteArray
     @TypeConverter
     fun fromBitmap(bmp: Bitmap): ByteArray {
         //outputStream is needed to convert bitmap into byteArray

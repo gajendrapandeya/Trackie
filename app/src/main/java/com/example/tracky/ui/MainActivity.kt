@@ -34,7 +34,7 @@ class MainActivity : AppCompatActivity() {
                 //id of the destination we navigated to
                 when (destination.id) {
 
-                    R.id.settingsFragment, R.id.runFragment, R.id.statisticsFragment -> bottomNavigationView.visibility =
+                    R.id.settingsFragment, R.id.runFragment, R.id.statisticsFragment  -> bottomNavigationView.visibility =
                         View.VISIBLE
                     else -> bottomNavigationView.visibility = View.GONE
                 }

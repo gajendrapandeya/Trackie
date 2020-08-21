@@ -5,7 +5,7 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.NotificationManager.IMPORTANCE_LOW
 import android.app.PendingIntent
-import android.app.PendingIntent.*
+import android.app.PendingIntent.FLAG_UPDATE_CURRENT
 import android.content.Context
 import android.content.Intent
 import android.location.Location
@@ -18,6 +18,7 @@ import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.Observer
 import com.example.tracky.R
 import com.example.tracky.other.Constants.ACTION_PAUSE_SERVICE
+import com.example.tracky.other.Constants.ACTION_SHOW_TRACKING_FRAGMENT
 import com.example.tracky.other.Constants.ACTION_START_OR_RESUME_SERVICE
 import com.example.tracky.other.Constants.ACTION_STOP_SERVICE
 import com.example.tracky.other.Constants.FASTEST_LOCATION_INTERVAL
@@ -27,6 +28,7 @@ import com.example.tracky.other.Constants.NOTIFICATION_CHANNEL_NAME
 import com.example.tracky.other.Constants.NOTIFICATION_ID
 import com.example.tracky.other.Constants.TIMER_UPDATE_INTERVAL
 import com.example.tracky.other.TrackingUtility
+import com.example.tracky.ui.MainActivity
 import com.google.android.gms.location.FusedLocationProviderClient
 import com.google.android.gms.location.LocationCallback
 import com.google.android.gms.location.LocationRequest
@@ -41,60 +43,45 @@ import kotlinx.coroutines.launch
 import timber.log.Timber
 import javax.inject.Inject
 
+
 typealias Polyline = MutableList<LatLng>
 typealias Polylines = MutableList<Polyline>
 
-//Usually when we create a service, then that service class inherits either from Service or IntentService class
-//But we are inheriting from LifeCycleService() because we need to observe from liveData object inside this class
-//Observe() of LiveData object needs the lifeCycleOwner and if we don't specify LifecycleService() here
-//then we cannot pass an instance of this service as a lifeCycleOwner to that observe function
+//Usually a service class inherits from Service or IntentService class
+//We are inheriting from LifeCycleService because we need to observe from liveData object inside of this class
+//and observe function of liveData object requires lifeCycleOwner and if we don't specify this class as LifeCycleService
+//then we cannot pass instance of this class as a lifeCycleOwner
 @AndroidEntryPoint
 class TrackingService : LifecycleService() {
 
-    private var isFirstRun = true
+    var isFirstRun = true
+    var serviceKilled = false
 
     @Inject
-    private lateinit var fusedLocationProviderClient: FusedLocationProviderClient
+    lateinit var fusedLocationProviderClient: FusedLocationProviderClient
 
     @Inject
     lateinit var baseNotificationBuilder: NotificationCompat.Builder
 
     lateinit var curNotificationBuilder: NotificationCompat.Builder
 
-    //time for notifications
-    private val timeRunInSeconds = MutableLiveData<Long>()
-
+    //liveData for displaying time in Notification
+    private var timeRunInSeconds = MutableLiveData<Long>()
 
     companion object {
-        //If we are tracking user or not
         val isTracking = MutableLiveData<Boolean>()
-
-        // this live data will hold list of list of co-ordinates that's because
-        //suppose user was first running then he stopped the service (this will generate first line)
-        //and if he again start the service(new line will be generated)
         val pathPoints = MutableLiveData<Polylines>()
 
-        //time for tracking fragment
+        //liveData fro displaying time in Tracking Fragment
         val timeRunInMillis = MutableLiveData<Long>()
     }
 
-    override fun onCreate() {
-        super.onCreate()
-        curNotificationBuilder = baseNotificationBuilder
-        postInitialValues()
-        fusedLocationProviderClient = FusedLocationProviderClient(this)
-        isTracking.observe(this, Observer {
-            updateLocationTracking(it)
-            updateNotificationTrackingState(it)
-
-        })
-    }
-
-    //this function get called whenEver we send a command to our service
-    //i.e. when we send an intent with an action attached to this service
+    //this function get called whenEver we pass a command to our Service class
+    //i.e. WhenEver we send an intent with an action attached
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-
+        //if intent is not null
         intent?.let {
+
             when (it.action) {
 
                 ACTION_START_OR_RESUME_SERVICE -> {
@@ -102,28 +89,40 @@ class TrackingService : LifecycleService() {
                         startForegroundService()
                         isFirstRun = false
                     } else {
-                        Timber.d("Resuming Service")
                         startTimer()
                     }
+
                 }
 
                 ACTION_PAUSE_SERVICE -> {
-                    Timber.d("Paused Service")
+
                     pauseService()
                 }
 
                 ACTION_STOP_SERVICE -> {
-                    Timber.d("Stopped Service")
+
+                    killService()
                 }
             }
         }
         return super.onStartCommand(intent, flags, startId)
     }
 
-    //WhenEver we want a notification, we must first create a notification channel for that
+    override fun onCreate() {
+        super.onCreate()
+        postInitialValues()
+        curNotificationBuilder = baseNotificationBuilder
+        fusedLocationProviderClient = FusedLocationProviderClient(this)
+
+        isTracking.observe(this, Observer {
+            updateLocationTracking(it)
+            updateNotificationTrackingState(it)
+        })
+    }
+
+    //creating notificationChannel
     @RequiresApi(Build.VERSION_CODES.O)
     private fun createNotificationChannel(notificationManager: NotificationManager) {
-
         val channel = NotificationChannel(
             NOTIFICATION_CHANNEL_ID,
             NOTIFICATION_CHANNEL_NAME,
@@ -132,7 +131,6 @@ class TrackingService : LifecycleService() {
         notificationManager.createNotificationChannel(channel)
     }
 
-    //function to start a foreground service
     private fun startForegroundService() {
 
         startTimer()
@@ -145,50 +143,40 @@ class TrackingService : LifecycleService() {
             createNotificationChannel(notificationManager)
         }
 
-        //foreground service will be started
         startForeground(NOTIFICATION_ID, baseNotificationBuilder.build())
 
-        //A pending intent is to open our mainActivity when user clicks on notifications
-        //We want to navigate user directly to TrackingFragment but by default it opens to MainActivity
-        //for us that will be our RunFragment
-
-        //observing in timeInSeconds for notifications
         timeRunInSeconds.observe(this, Observer {
-            val notification = curNotificationBuilder
-                .setContentText(TrackingUtility.getFormattedStopWatchTime(it * 1000L))
-
-            notificationManager.notify(NOTIFICATION_ID, notification.build())
+            if (!serviceKilled) {
+                val notification = curNotificationBuilder
+                    .setContentText(TrackingUtility.getFormattedStopWatchTime(it * 1000))
+                notificationManager.notify(NOTIFICATION_ID, notification.build())
+            }
 
         })
     }
 
-    //function that post initial values to LiveData
+    //Pending Intent is used to open our mainActivity when user click on Notification
+
+
+    //posting initial values to our liveData
     private fun postInitialValues() {
         isTracking.postValue(false)
-        //empty list
         pathPoints.postValue(mutableListOf())
-
         timeRunInSeconds.postValue(0L)
         timeRunInMillis.postValue(0L)
     }
 
-    //function that adds an empty polyline at the end of our polyLines list
+    //function that adds empty polyline to our Polylines list
     private fun addEmptyPolyline() = pathPoints.value?.apply {
         add(mutableListOf())
         pathPoints.postValue(this)
     } ?: pathPoints.postValue(mutableListOf(mutableListOf()))
 
-    //function that adds coordinates to the last polyline of our polyLines list
-    private fun addPathPoints(location: Location?) {
-
-        //if location is not null
+    private fun addPathPoint(location: Location?) {
         location?.let {
-
-            //converting latLng to location
-            val pos = LatLng(location.latitude, location.longitude)
-
+            val postion = LatLng(it.latitude, it.longitude)
             pathPoints.value?.apply {
-                last().add(pos)
+                last().add(postion)
                 pathPoints.postValue(this)
             }
         }
@@ -197,23 +185,21 @@ class TrackingService : LifecycleService() {
     val locationCallback = object : LocationCallback() {
         override fun onLocationResult(result: LocationResult?) {
             super.onLocationResult(result)
-
             if (isTracking.value!!) {
                 result?.locations?.let { locations ->
                     for (location in locations) {
-                        addPathPoints(location)
-                        Timber.d("new location: ${location.latitude},${location.longitude}")
+                        addPathPoint(location)
+                        Timber.d("New Location: ${location.latitude}, ${location.longitude}")
                     }
                 }
             }
         }
     }
 
-    //function that update our location tracking
     @SuppressLint("MissingPermission")
     private fun updateLocationTracking(isTracking: Boolean) {
         if (isTracking) {
-            if (TrackingUtility.hasLocationsPermissions(this)) {
+            if (TrackingUtility.hasLocationPermissions(this)) {
                 val request = LocationRequest().apply {
                     interval = LOCATION_UPDATE_INTERVAL
                     fastestInterval = FASTEST_LOCATION_INTERVAL
@@ -226,7 +212,9 @@ class TrackingService : LifecycleService() {
                 )
             }
         } else {
-            fusedLocationProviderClient.removeLocationUpdates(locationCallback)
+            fusedLocationProviderClient.removeLocationUpdates(
+                locationCallback
+            )
         }
     }
 
@@ -236,9 +224,10 @@ class TrackingService : LifecycleService() {
         isTimerEnabled = false
     }
 
+
     private var isTimerEnabled = false
 
-    //time from the beginning where the timer started or we resumed the timer
+    //time from us clicking the start or clicking the pause
     private var lapTime = 0L
 
     //total time of our run
@@ -249,42 +238,33 @@ class TrackingService : LifecycleService() {
 
     private var lastSecondTimeStamp = 0L
 
-    //this will be called always when we start or resume our service
     private fun startTimer() {
-
         addEmptyPolyline()
         isTracking.postValue(true)
         timeStarted = System.currentTimeMillis()
         isTimerEnabled = true
 
         CoroutineScope(Dispatchers.Main).launch {
-
-            //as long as we are tracking
             while (isTracking.value!!) {
-
-                //time difference between now and timeStarted
+                //time difference between now and time Started
                 lapTime = System.currentTimeMillis() - timeStarted
 
-                //post the new lap time
+                //post the new LapTime
                 timeRunInMillis.postValue(timeRun + lapTime)
 
-                //last whole second values passed in millisecond => lastSecondTimeStamp + 1000
-                if (timeRunInMillis.value!! >= lastSecondTimeStamp + 1000) {
-
+                if (timeRunInMillis.value!! >= lastSecondTimeStamp + 1000L) {
                     timeRunInSeconds.postValue(timeRunInSeconds.value!! + 1)
                     lastSecondTimeStamp += 1000L
                 }
                 delay(TIMER_UPDATE_INTERVAL)
             }
-
             timeRun += lapTime
         }
     }
 
     private fun updateNotificationTrackingState(isTracking: Boolean) {
-        val notificationActionText = if(isTracking) "Pause" else "Resume"
-
-        val pendingIntent = if(isTracking) {
+        val notificationActionText = if (isTracking) "Pause" else "Resume"
+        val pendingIntent = if (isTracking) {
             val pauseIntent = Intent(this, TrackingService::class.java).apply {
                 action = ACTION_PAUSE_SERVICE
             }
@@ -293,20 +273,33 @@ class TrackingService : LifecycleService() {
             val resumeIntent = Intent(this, TrackingService::class.java).apply {
                 action = ACTION_START_OR_RESUME_SERVICE
             }
-            getService(this, 2, resumeIntent, FLAG_UPDATE_CURRENT)
+            PendingIntent.getService(this, 2, resumeIntent, FLAG_UPDATE_CURRENT)
         }
 
-        val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val notificationManager =
+            getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
         curNotificationBuilder.javaClass.getDeclaredField("mActions").apply {
             isAccessible = true
             set(curNotificationBuilder, ArrayList<NotificationCompat.Action>())
         }
 
-        curNotificationBuilder = baseNotificationBuilder
-            .addAction(R.drawable.ic_pause_black_24dp, notificationActionText, pendingIntent)
+        if (!serviceKilled) {
+            curNotificationBuilder = baseNotificationBuilder
+                .addAction(R.drawable.ic_pause_black_24dp, notificationActionText, pendingIntent)
 
-        notificationManager.notify(NOTIFICATION_ID, curNotificationBuilder.build())
+            notificationManager.notify(NOTIFICATION_ID, curNotificationBuilder.build())
+        }
 
+
+    }
+
+    private fun killService() {
+        serviceKilled = true
+        isFirstRun = true
+        pauseService()
+        postInitialValues()
+        stopForeground(true)
+        stopSelf()
     }
 }

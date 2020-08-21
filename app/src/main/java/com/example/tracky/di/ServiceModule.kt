@@ -11,13 +11,15 @@ import com.google.android.gms.location.FusedLocationProviderClient
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
+import dagger.hilt.android.components.ServiceComponent
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.android.scopes.ServiceScoped
 
 @Module
-@InstallIn(ServiceModule::class)
+@InstallIn(ServiceComponent::class)
 object ServiceModule {
 
+    //for the lifetime of Service module, there will be only one instance of FusedLocationProviderClient
     @ServiceScoped
     @Provides
     fun provideFusedLocationProviderClient(

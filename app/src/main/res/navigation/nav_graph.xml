@@ -3,6 +3,7 @@
     xmlns:app="http://schemas.android.com/apk/res-auto" android:id="@+id/nav_graph"
     app:startDestination="@id/setupFragment">
 
+    <!-- LaunchSingleTop ensures that we don't launch new instance of activity-->
     <action
         android:id="@+id/action_global_tracking_fragment"
         app:destination="@id/trackingFragment"

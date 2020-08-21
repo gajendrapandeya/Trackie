@@ -2,6 +2,7 @@
     <string name="app_name">Tracky</string>
     <string name="google_maps_key">AIzaSyAazgTS0YJqb5_arSbr-YJbOb7q_t1PFyY</string>
     <string name="runner">Runner</string>
+    <string name="cancel_run">Cancel Run</string>
 
     <string-array name="filter_options">
         <item>Date</item>
