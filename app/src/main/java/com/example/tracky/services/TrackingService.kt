@@ -95,12 +95,10 @@ class TrackingService : LifecycleService() {
                 }
 
                 ACTION_PAUSE_SERVICE -> {
-
                     pauseService()
                 }
 
                 ACTION_STOP_SERVICE -> {
-
                     killService()
                 }
             }
@@ -287,7 +285,6 @@ class TrackingService : LifecycleService() {
         if (!serviceKilled) {
             curNotificationBuilder = baseNotificationBuilder
                 .addAction(R.drawable.ic_pause_black_24dp, notificationActionText, pendingIntent)
-
             notificationManager.notify(NOTIFICATION_ID, curNotificationBuilder.build())
         }
 
