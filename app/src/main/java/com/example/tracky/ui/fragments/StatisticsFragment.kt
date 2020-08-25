@@ -8,6 +8,7 @@ import androidx.fragment.app.Fragment
 import androidx.fragment.app.viewModels
 import androidx.lifecycle.Observer
 import com.example.tracky.R
+import com.example.tracky.other.CustomMarkerView
 import com.example.tracky.other.TrackingUtility
 import com.example.tracky.ui.viewmodels.StastisticsViewModel
 import com.github.mikephil.charting.components.XAxis
@@ -25,6 +26,7 @@ class StatisticsFragment : Fragment(R.layout.fragment_stastistics) {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
         suscribeToObserver()
+        setupBarChart()
     }
 
     private fun suscribeToObserver() {
@@ -71,6 +73,7 @@ class StatisticsFragment : Fragment(R.layout.fragment_stastistics) {
                     color = ContextCompat.getColor(requireContext(), R.color.colorAccent)
                 }
                 barChart.data = BarData(barDataSet)
+                barChart.marker = CustomMarkerView(it.reversed(), requireContext(), R.layout.marker_view)
                 barChart.invalidate()
             }
         })

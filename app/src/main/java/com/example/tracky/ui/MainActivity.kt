@@ -25,6 +25,7 @@ class MainActivity : AppCompatActivity() {
         setSupportActionBar(toolbar)
         //setting navigation component with Bottom Navigation
         bottomNavigationView.setupWithNavController(navHostFragment.findNavController())
+        bottomNavigationView.setOnNavigationItemReselectedListener { /* NO-OP */}
 
         //Since we have 5 fragments and we only wanna show 3 of them in bottomNav
         //So ..

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <array name="preloaded_fonts" translatable="false">
+        <item>@font/abel</item>
+        <item>@font/alef</item>
+        <item>@font/bungee</item>
+        <item>@font/coustard</item>
+        <item>@font/nunito_sans_semibold_italic</item>
+    </array>
+</resources>
